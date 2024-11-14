@@ -1,1 +1,145 @@
+const openCageApiKey = '781c669558a84b3faa8a557c266ea9f5'; // Place your OpenCage API key here
+const distanceApiKey = 'MvwBvK7xKnAYo9BW7eRY6dAqkTFbOd5eoygqYNSRhdk1l6T6jO1OFHei6I5NEwfh'; // Place your Distance Matrix API key here
+const algoliaAppId = 'YOUR_ALGOLIA_APP_ID'; // Place your Algolia app ID here
+const algoliaApiKey = 'YOUR_ALGOLIA_API_KEY'; // Place your Algolia API key here
+
+// Define color-coded icons for each service category
+const icons = {
+  "Food Bank": L.icon({
+    iconUrl: 'https://path-to-your-food-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32],
+  }),
+  "Shelter": L.icon({
+    iconUrl: 'https://path-to-your-shelter-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32],
+  }),
+  "Medical Clinic": L.icon({
+    iconUrl: 'https://path-to-your-medical-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32],
+  }),
+  "default": L.icon({
+    iconUrl: 'https://unpkg.com/leaflet/dist/images/marker-icon.png',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32],
+  })
+};
+
+// MapComponent: Renders the map and markers for services
+const MapComponent = ({ userLocation, services }) => {
+  const { useEffect } = React;
+  const mapRef = React.useRef(null);
+
+  useEffect(() => {
+    if (!mapRef.current) {
+      mapRef.current = L.map("map").setView([userLocation.lat, userLocation.lng], 13);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(mapRef.current);
+    }
+
+    // Clear existing markers before adding new ones
+    mapRef.current.eachLayer((layer) => {
+      if (layer instanceof L.Marker) {
+        layer.remove();
+      }
+    });
+
+    services.forEach((service) => {
+      const icon = icons[service.category] || icons["default"];
+      const marker = L.marker([service.location.coordinates[1], service.location.coordinates[0]], { icon }).addTo(mapRef.current);
+      marker.bindPopup(`<strong>${service.name}</strong><br>${service.category}<br>Status: ${service.availabilityStatus}`);
+    });
+  }, [userLocation, services]);
+
+  return <div id="map" className="map-container"></div>;
+};
+
+// App Component with Algolia Places autocomplete
+const App = () => {
+  const [userLocation, setUserLocation] = React.useState({ lat: 37.7749, lng: -122.4194 }); // Default to San Francisco
+  const [services, setServices] = React.useState([]);
+  const [category, setCategory] = React.useState("");
+  const [distance, setDistance] = React.useState(null);
+
+  // Fetch services based on user location and category
+  const fetchServices = async () => {
+    const response = await fetch(`/api/services?lat=${userLocation.lat}&lng=${userLocation.lng}&radius=5&category=${category}`);
+    const data = await response.json();
+    setServices(data);
+  };
+
+  // Handle address selection and set location
+  const handleAddressSubmit = async (lat, lng) => {
+    setUserLocation({ lat, lng });
+    fetchServices();
+    calculateDistanceToService(lat, lng);
+  };
+
+  // Set up Algolia Places for address autocomplete
+  React.useEffect(() => {
+    const placesAutocomplete = places({
+      appId: algoliaAppId, // Use Algolia app ID here
+      apiKey: algoliaApiKey, // Use Algolia API key here
+      container: document.querySelector('#address-input')
+    }).configure({
+      type: 'address'
+    });
+
+    placesAutocomplete.on('change', (e) => {
+      const lat = e.suggestion.latlng.lat;
+      const lng = e.suggestion.latlng.lng;
+      handleAddressSubmit(lat, lng);
+    });
+  }, []);
+
+  // Calculate distance from user location to service location
+  const calculateDistanceToService = async (serviceLat, serviceLng) => {
+    const url = `https://api.distancematrix.ai/maps/api/distancematrix/json?origins=${userLocation.lat},${userLocation.lng}&destinations=${serviceLat},${serviceLng}&key=${distanceApiKey}`;
+    
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (data.rows && data.rows[0].elements[0].status === "OK") {
+        const distanceText = data.rows[0].elements[0].distance.text;
+        setDistance(distanceText);
+      } else {
+        setDistance('Unable to calculate the distance');
+      }
+    } catch (error) {
+      console.error('Error fetching distance data:', error);
+      setDistance('Error calculating distance');
+    }
+  };
+
+  return (
+    <div>
+      <div className="search-bar">
+        <input id="address-input" type="text" placeholder="Enter your address" required />
+        <select onChange={(e) => setCategory(e.target.value)} value={category}>
+          <option value="">All Categories</option>
+          <option value="Food Bank">Food Bank</option>
+          <option value="Shelter">Shelter</option>
+          <option value="Medical Clinic">Medical Clinic</option>
+        </select>
+      </div>
+
+      <MapComponent userLocation={userLocation} services={services} />
+
+      {distance && (
+        <div className="result-container">
+          Distance to service location: {distance}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Render the App
+ReactDOM.render(<App />, document.getElementById("root"));
 
